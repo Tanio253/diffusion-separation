@@ -7,14 +7,20 @@ from torch.autograd import Function
 from torch.utils.cpp_extension import load
 
 
+
 module_path = os.path.dirname(__file__)
-fused = load(
-    "fused",
-    sources=[
-        os.path.join(module_path, "fused_bias_act.cpp"),
-        os.path.join(module_path, "fused_bias_act_kernel.cu"),
-    ],
-)
+
+try:
+    fused = load(
+        name="fused",
+        sources=[
+            os.path.join(module_path, "fused_bias_act.cpp"),
+            os.path.join(module_path, "fused_bias_act_kernel.cu"),
+        ],
+    )
+    print("Extension loaded successfully.")
+except Exception as e:
+    print(f"Failed to load extension: {e}")
 
 
 class FusedLeakyReLUFunctionBackward(Function):

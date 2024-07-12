@@ -101,8 +101,15 @@ class DiffSepModel(pl.LightningModule):
 
         # the config and all hyperparameters are saved by hydra to the experiment dir
         self.config = config
-
-        self.score_model = instantiate(self.config.model.score_model, _recursive_=False)
+        # print(config.model.score_model)
+        # print(config.model)
+        backborn_cf = {'_target_': 'model.score_models.NCSNpp', 'nf': 64, 'num_channels_in': 6, 'num_channels_out': 4}
+        # self.backborn_model = instantiate(back)
+        backborn_model = instantiate({'_target_': 'models.ncsnpp.TemporalConvNet'})
+        print(1)
+        config1 = {'_target_': 'models.score_models.ScoreModelNCSNpp', 'num_sources': 2, 'stft_args': {'n_fft': 510, 'hop_length': 128, 'center': True, 'pad_mode': 'constant'}, 'backbone_args': {'_target_': 'ncsnpp.NCSNpp', 'nf': 64}, 'transform': 'exponent', 'spec_abs_exponent': 0.5, 'spec_factor': 0.33, 'spec_trans_learnable': False}
+        self.score_model = instantiate(config1, _recursive_=False)
+        
 
         self.valid_max_sep_batches = getattr(
             self.config.model, "valid_max_sep_batches", 1

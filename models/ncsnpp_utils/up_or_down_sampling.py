@@ -7,14 +7,14 @@ import torch.nn as nn
 import torch
 import torch.nn.functional as F
 import numpy as np
-from .op import upfirdn2d
-
+from models.ncsnpp_utils.op import fused_leaky_relu
 
 # Function ported from StyleGAN2
 def get_weight(module, shape, weight_var="weight", kernel_init=None):
     """Get/create weight tensor for a convolution or fully-connected layer."""
 
     return module.param(weight_var, kernel_init, shape)
+
 
 
 class Conv2d(nn.Module):

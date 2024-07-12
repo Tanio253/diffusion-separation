@@ -24,6 +24,8 @@ class ScoreModelNCSNpp(torch.nn.Module):
         backbone_args.update(
             num_channels_in=2 * num_sources + 2, num_channels_out=2 * num_sources
         )
+        
+        print(backbone_args)
         self.backbone = instantiate(backbone_args)
         self.stft_args = stft_args
         self.stft = torchaudio.transforms.Spectrogram(power=None, **stft_args)
@@ -136,3 +138,79 @@ class ScoreModelNCSNpp(torch.nn.Module):
         x = self.backbone(x, time_cond)
         x = self.post_process(x, n_samples, n_pad)
         return x
+
+class TemporalConvNet(torch.nn.Module):
+    def __init__(
+        self, N, B, H, P, X, R, C, norm_type="gLN", causal=False, mask_nonlinear="relu"
+    ):
+        """Basic Module of tasnet.
+        Args:
+            N: Number of filters in autoencoder
+            B: Number of channels in bottleneck 1 * 1-conv block
+            H: Number of channels in convolutional blocks
+            P: Kernel size in convolutional blocks
+            X: Number of convolutional blocks in each repeat
+            R: Number of repeats
+            C: Number of speakers
+            norm_type: BN, gLN, cLN
+            causal: causal or non-causal
+            mask_nonlinear: use which non-linear function to generate mask
+        """
+        super().__init__()
+        # Hyper-parameter
+        self.C = C
+        self.mask_nonlinear = mask_nonlinear
+        # Components
+        # [M, N, K] -> [M, N, K]
+        layer_norm = ChannelwiseLayerNorm(N)
+        # [M, N, K] -> [M, B, K]
+        bottleneck_conv1x1 = nn.Conv1d(N, B, 1, bias=False)
+        # [M, B, K] -> [M, B, K]
+        repeats = []
+        for r in range(R):
+            blocks = []
+            for x in range(X):
+                dilation = 2 ** x
+                padding = (P - 1) * dilation if causal else (P - 1) * dilation // 2
+                blocks += [
+                    TemporalBlock(
+                        B,
+                        H,
+                        P,
+                        stride=1,
+                        padding=padding,
+                        dilation=dilation,
+                        norm_type=norm_type,
+                        causal=causal,
+                    )
+                ]
+            repeats += [nn.Sequential(*blocks)]
+        temporal_conv_net = nn.Sequential(*repeats)
+        # [M, B, K] -> [M, C*N, K]
+        mask_conv1x1 = nn.Conv1d(B, C * N, 1, bias=False)
+        # Put together
+        self.network = nn.Sequential(
+            layer_norm, bottleneck_conv1x1, temporal_conv_net, mask_conv1x1
+        )
+
+    def forward(self, mixture_w):
+        """Keep this API same with TasNet.
+        Args:
+            mixture_w: [M, N, K], M is batch size
+        Returns:
+            est_mask: [M, C, N, K]
+        """
+        M, N, K = mixture_w.size()
+        score = self.network(mixture_w)  # [M, N, K] -> [M, C*N, K]
+        score = score.view(M, self.C, N, K)  # [M, C*N, K] -> [M, C, N, K]
+        if self.mask_nonlinear == "softmax":
+            est_mask = F.softmax(score, dim=1)
+        elif self.mask_nonlinear == "relu":
+            est_mask = F.relu(score)
+        elif self.mask_nonlinear == "sigmoid":
+            est_mask = F.sigmoid(score)
+        elif self.mask_nonlinear == "tanh":
+            est_mask = F.tanh(score)
+        else:
+            raise ValueError("Unsupported mask non-linear function")
+        return est_mask
