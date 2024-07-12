@@ -4,6 +4,7 @@ channels:
   - conda-forge
 dependencies:
   - python=3.10
+  - pytorch=2.3.1
   - torchvision
   - torchaudio
   - tensorboard
